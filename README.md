@@ -19,5 +19,9 @@ uvicorn src.main:app --reload --port 8000
 
 ## Pruebas
 ```bash
+# Ejecución dentro del contenedor
+docker compose exec backend pytest
+
+# O localmente
 pytest tests/
 ```
