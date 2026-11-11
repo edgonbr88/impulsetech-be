@@ -9,6 +9,7 @@ from src.modules.clients.schemas import (
     ClienteCreate,
     ClienteUpdate,
     ClienteResponse,
+    ClienteReassign,
 )
 from src.modules.clients import service
 
@@ -22,11 +23,13 @@ async def list_clientes(
     search: str | None = Query(None, description="Búsqueda por Razón Social, RIF, Contacto o Email"),
     estado: str | None = Query(None, description="Filtro por estado: ACTIVO, INACTIVO, MOROSO"),
     ejecutivo_id: uuid.UUID | None = Query(None, description="Filtro por ejecutivo asignado"),
+    solo_mi_cartera: bool = Query(False, description="Filtrar solo clientes asignados al usuario logueado"),
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
+    target_ejecutivo_id = current_user.id if solo_mi_cartera else ejecutivo_id
     return await service.get_clientes(
-        db, skip=skip, limit=limit, search=search, estado=estado, ejecutivo_id=ejecutivo_id
+        db, skip=skip, limit=limit, search=search, estado=estado, ejecutivo_id=target_ejecutivo_id
     )
 
 
@@ -56,6 +59,16 @@ async def update_cliente(
     current_user: Usuario = Depends(get_current_user),
 ):
     return await service.update_cliente(db, cliente_id, cliente_in)
+
+
+@router.patch("/{cliente_id}/reassign", response_model=ClienteResponse)
+async def reassign_cliente(
+    cliente_id: uuid.UUID,
+    reassign_in: ClienteReassign,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    return await service.reassign_cliente(db, cliente_id, reassign_in)
 
 
 @router.delete("/{cliente_id}", status_code=status.HTTP_204_NO_CONTENT)

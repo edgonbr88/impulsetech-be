@@ -77,3 +77,70 @@ async def test_crud_clientes_flow():
         # 9. Verificar que ya no existe (404)
         get_after_delete = await ac.get(f"/api/v1/clients/{cliente_id}", headers=headers)
         assert get_after_delete.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_reassign_and_cartera_filter():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # 1. Login como Admin
+        login_res = await ac.post(
+            "/api/v1/auth/login",
+            json={"email": "admin@impulsetech.com", "password": "Admin2026*!"}
+        )
+        token = login_res.json()["access_token"]
+        admin_id = login_res.json()["user"]["id"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 2. Crear un segundo usuario (Ejecutivo)
+        exec_email = f"ejecutivo_{uuid.uuid4().hex[:6]}@impulsetech.com"
+        create_exec_res = await ac.post(
+            "/api/v1/users",
+            json={"nombre": "Ejecutivo Ventas", "email": exec_email, "password": "Password2026*!", "rol": "EJECUTIVO"},
+            headers=headers
+        )
+        assert create_exec_res.status_code == 201
+        exec_id = create_exec_res.json()["id"]
+
+        # 3. Crear Cliente asignado al Admin
+        random_suffix = uuid.uuid4().hex[:6].upper()
+        create_res = await ac.post(
+            "/api/v1/clients",
+            json={
+                "razon_social": f"Empresa Cartera {random_suffix}",
+                "rif_identificacion": f"J-{random_suffix}-1",
+                "contacto_principal": "Valeria Silva",
+                "telefono_whatsapp": "+584149876543",
+                "email": f"valeria_{random_suffix.lower()}@cartera.com",
+                "ejecutivo_id": admin_id,
+            },
+            headers=headers
+        )
+        assert create_res.status_code == 201
+        cliente_id = create_res.json()["id"]
+
+        # 4. Probar filtro solo_mi_cartera con el Admin
+        cartera_res = await ac.get("/api/v1/clients?solo_mi_cartera=true", headers=headers)
+        assert cartera_res.status_code == 200
+        assert any(c["id"] == cliente_id for c in cartera_res.json())
+
+        # 5. Reasignar cliente al nuevo ejecutivo
+        reassign_res = await ac.patch(
+            f"/api/v1/clients/{cliente_id}/reassign",
+            json={"nuevo_ejecutivo_id": exec_id, "motivo": "Transferencia de cartera para atención personalizada"},
+            headers=headers
+        )
+        assert reassign_res.status_code == 200
+        reassigned_data = reassign_res.json()
+        assert reassigned_data["ejecutivo"]["id"] == exec_id
+        assert "Transferencia de cartera" in reassigned_data["notas"]
+
+        # 6. Verificar que con filtro de cartera del Admin ya no aparece
+        cartera_admin_after = await ac.get("/api/v1/clients?solo_mi_cartera=true", headers=headers)
+        assert not any(c["id"] == cliente_id for c in cartera_admin_after.json())
+
+        # 7. Verificar que con filtro por ejecutivo_id del nuevo ejecutivo sí aparece
+        cartera_exec = await ac.get(f"/api/v1/clients?ejecutivo_id={exec_id}", headers=headers)
+        assert any(c["id"] == cliente_id for c in cartera_exec.json())
+
+        # Cleanup
+        await ac.delete(f"/api/v1/clients/{cliente_id}", headers=headers)
