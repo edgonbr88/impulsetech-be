@@ -26,12 +26,14 @@ from src.modules.users.router import router as users_router
 from src.modules.clients.router import router as clients_router
 from src.modules.leads.router import router as leads_router
 from src.modules.services.router import router as services_router
+from src.modules.payments.router import router as payments_router
 
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(clients_router, prefix="/api/v1")
 app.include_router(leads_router, prefix="/api/v1")
 app.include_router(services_router, prefix="/api/v1")
+app.include_router(payments_router, prefix="/api/v1")
 
 
 @app.get("/", tags=["Root"])
