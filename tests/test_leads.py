@@ -106,3 +106,68 @@ async def test_leads_crud_and_embudos_flow():
         await ac.delete(f"/api/v1/leads/{saren_id}", headers=headers)
         await ac.delete(f"/api/v1/leads/{ia_id}", headers=headers)
         await ac.delete(f"/api/v1/leads/{sw_id}", headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_convert_lead_to_client():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # 1. Login como Admin
+        login_res = await ac.post(
+            "/api/v1/auth/login",
+            json={"email": "admin@impulsetech.com", "password": "Admin2026*!"}
+        )
+        assert login_res.status_code == 200
+        token = login_res.json()["access_token"]
+        admin_id = login_res.json()["user"]["id"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 2. Crear un Lead
+        suffix = uuid.uuid4().hex[:6]
+        lead_payload = {
+            "nombre_contacto": f"Elena Fuentes {suffix}",
+            "empresa_o_proyecto": f"Inversiones Fuentes {suffix} C.A.",
+            "telefono_whatsapp": "+584149988776",
+            "email": f"elena_{suffix}@fuentes.com",
+            "embudo": "SOFTWARE_MEDIDA",
+            "etapa": "NEGOCIACION",
+            "valor_estimado_usd": "3200.00",
+            "ejecutivo_asignado_id": admin_id,
+        }
+        res_lead = await ac.post("/api/v1/leads", json=lead_payload, headers=headers)
+        assert res_lead.status_code == 201
+        lead_id = res_lead.json()["id"]
+
+        # 3. Convertir Lead a Cliente
+        rif_fiscal = f"J-{suffix.upper()}-9"
+        convert_payload = {
+            "rif_identificacion": rif_fiscal,
+            "razon_social": f"Inversiones Fuentes {suffix} C.A.",
+            "direccion_ciudad": "Valencia, Carabobo",
+            "notas_adicionales": "Conversión formal tras acuerdo comercial"
+        }
+        convert_res = await ac.post(
+            f"/api/v1/leads/{lead_id}/convert-to-client",
+            json=convert_payload,
+            headers=headers
+        )
+        assert convert_res.status_code == 200
+        convert_data = convert_res.json()
+        assert convert_data["lead_id"] == lead_id
+        cliente_id = convert_data["cliente_id"]
+        assert convert_data["rif_identificacion"] == rif_fiscal
+
+        # 4. Verificar que el lead ahora está en etapa GANADO y con cliente_id
+        lead_after = await ac.get(f"/api/v1/leads/{lead_id}", headers=headers)
+        assert lead_after.status_code == 200
+        assert lead_after.json()["etapa"] == "GANADO"
+        assert lead_after.json()["cliente_id"] == cliente_id
+
+        # 5. Verificar que el cliente existe en el módulo de clientes
+        client_res = await ac.get(f"/api/v1/clients/{cliente_id}", headers=headers)
+        assert client_res.status_code == 200
+        assert client_res.json()["rif_identificacion"] == rif_fiscal
+        assert client_res.json()["contacto_principal"] == lead_payload["nombre_contacto"]
+
+        # Cleanup
+        await ac.delete(f"/api/v1/leads/{lead_id}", headers=headers)
+        await ac.delete(f"/api/v1/clients/{cliente_id}", headers=headers)

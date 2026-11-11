@@ -4,7 +4,13 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 from src.modules.leads.models import Lead
-from src.modules.leads.schemas import LeadCreate, LeadUpdate, LeadStageUpdate
+from src.modules.leads.schemas import (
+    LeadCreate,
+    LeadUpdate,
+    LeadStageUpdate,
+    LeadConvertToClientRequest,
+    LeadConvertToClientResponse,
+)
 from src.modules.users.models import Usuario
 from src.modules.clients.models import Cliente
 
@@ -166,3 +172,81 @@ async def delete_lead(db: AsyncSession, lead_id: uuid.UUID) -> None:
     lead = await get_lead_by_id(db, lead_id)
     await db.delete(lead)
     await db.commit()
+
+
+async def convert_lead_to_client(
+    db: AsyncSession,
+    lead_id: uuid.UUID,
+    convert_in: LeadConvertToClientRequest,
+) -> LeadConvertToClientResponse:
+    lead = await get_lead_by_id(db, lead_id)
+
+    # 1. Verificar si ya fue convertido
+    if lead.cliente_id:
+        cliente_existente = await db.execute(
+            select(Cliente).filter(Cliente.id == lead.cliente_id)
+        )
+        c = cliente_existente.scalar_one_or_none()
+        if c:
+            return LeadConvertToClientResponse(
+                lead_id=lead.id,
+                cliente_id=c.id,
+                razon_social=c.razon_social,
+                rif_identificacion=c.rif_identificacion,
+                message="Este lead ya había sido convertido a cliente anteriormente.",
+            )
+
+    # 2. Validar que el RIF no esté ya registrado en clientes
+    clean_rif = convert_in.rif_identificacion.strip().upper()
+    rif_check = await db.execute(
+        select(Cliente).filter(Cliente.rif_identificacion == clean_rif)
+    )
+    if rif_check.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Ya existe un cliente registrado con el RIF '{clean_rif}'.",
+        )
+
+    # 3. Crear el nuevo Cliente con los datos del Lead
+    razon_social = (
+        convert_in.razon_social.strip()
+        if convert_in.razon_social
+        else lead.empresa_o_proyecto
+    )
+    notas_cliente = f"Cliente generado desde Lead ({lead.embudo})."
+    if lead.notas:
+        notas_cliente += f"\nNotas previas: {lead.notas}"
+    if convert_in.notas_adicionales:
+        notas_cliente += f"\nNotas de conversión: {convert_in.notas_adicionales.strip()}"
+
+    nuevo_cliente = Cliente(
+        razon_social=razon_social,
+        rif_identificacion=clean_rif,
+        contacto_principal=lead.nombre_contacto,
+        telefono_whatsapp=lead.telefono_whatsapp,
+        email=lead.email,
+        direccion_ciudad=convert_in.direccion_ciudad.strip() if convert_in.direccion_ciudad else None,
+        ejecutivo_id=lead.ejecutivo_asignado_id,
+        estado="ACTIVO",
+        notas=notas_cliente,
+    )
+    db.add(nuevo_cliente)
+    await db.flush()
+
+    # 4. Actualizar el Lead
+    lead.cliente_id = nuevo_cliente.id
+    lead.etapa = "GANADO"
+    lead.motivo_perdida = None
+
+    await db.commit()
+    await db.refresh(nuevo_cliente)
+    await db.refresh(lead)
+
+    return LeadConvertToClientResponse(
+        lead_id=lead.id,
+        cliente_id=nuevo_cliente.id,
+        razon_social=nuevo_cliente.razon_social,
+        rif_identificacion=nuevo_cliente.rif_identificacion,
+        message="¡Lead convertido a cliente exitosamente!",
+    )
+

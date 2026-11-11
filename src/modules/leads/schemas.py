@@ -70,3 +70,19 @@ class LeadResponse(LeadBase):
     updated_at: datetime
     ejecutivo_asignado: EjecutivoLeadSummary | None = None
     cliente: ClienteLeadSummary | None = None
+
+
+class LeadConvertToClientRequest(BaseModel):
+    rif_identificacion: str
+    razon_social: str | None = None
+    direccion_ciudad: str | None = None
+    notas_adicionales: str | None = None
+
+
+class LeadConvertToClientResponse(BaseModel):
+    lead_id: uuid.UUID
+    cliente_id: uuid.UUID
+    razon_social: str
+    rif_identificacion: str
+    message: str
+
