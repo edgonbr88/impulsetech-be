@@ -10,6 +10,8 @@ from src.modules.leads.schemas import (
     LeadUpdate,
     LeadStageUpdate,
     LeadResponse,
+    LeadConvertToClientRequest,
+    LeadConvertToClientResponse,
 )
 from src.modules.leads import service
 
@@ -76,6 +78,16 @@ async def update_lead_stage(
     current_user: Usuario = Depends(get_current_user),
 ):
     return await service.update_lead_stage(db, lead_id, stage_in)
+
+
+@router.post("/{lead_id}/convert-to-client", response_model=LeadConvertToClientResponse)
+async def convert_lead_to_client(
+    lead_id: uuid.UUID,
+    convert_in: LeadConvertToClientRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    return await service.convert_lead_to_client(db, lead_id, convert_in)
 
 
 @router.delete("/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)
