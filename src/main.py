@@ -23,9 +23,11 @@ app.add_middleware(
 # Importar y registrar routers de módulos
 from src.modules.auth.router import router as auth_router
 from src.modules.users.router import router as users_router
+from src.modules.clients.router import router as clients_router
 
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
+app.include_router(clients_router, prefix="/api/v1")
 
 
 @app.get("/", tags=["Root"])
