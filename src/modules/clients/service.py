@@ -1,10 +1,11 @@
 import uuid
+from datetime import datetime, timezone
 from typing import Sequence
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 from src.modules.clients.models import Cliente
-from src.modules.clients.schemas import ClienteCreate, ClienteUpdate
+from src.modules.clients.schemas import ClienteCreate, ClienteUpdate, ClienteReassign
 from src.modules.users.models import Usuario
 
 
@@ -146,3 +147,32 @@ async def delete_cliente(db: AsyncSession, cliente_id: uuid.UUID) -> None:
     cliente = await get_cliente_by_id(db, cliente_id)
     await db.delete(cliente)
     await db.commit()
+
+
+async def reassign_cliente(
+    db: AsyncSession, cliente_id: uuid.UUID, reassign_in: ClienteReassign
+) -> Cliente:
+    cliente = await get_cliente_by_id(db, cliente_id)
+
+    # Validar que el nuevo ejecutivo existe
+    ejecutivo_res = await db.execute(
+        select(Usuario).filter(Usuario.id == reassign_in.nuevo_ejecutivo_id)
+    )
+    nuevo_ejecutivo = ejecutivo_res.scalar_one_or_none()
+    if not nuevo_ejecutivo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El nuevo ejecutivo asignado no existe"
+        )
+
+    cliente.ejecutivo_id = reassign_in.nuevo_ejecutivo_id
+
+    if reassign_in.motivo:
+        timestamp_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        nota_cambio = f"[{timestamp_str}] Reasignado a {nuevo_ejecutivo.nombre}. Motivo: {reassign_in.motivo.strip()}"
+        cliente.notas = f"{cliente.notas}\n{nota_cambio}" if cliente.notas else nota_cambio
+
+    await db.commit()
+    await db.refresh(cliente)
+    return await get_cliente_by_id(db, cliente.id)
+

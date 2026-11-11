@@ -50,3 +50,9 @@ class ClienteResponse(ClienteBase):
     created_at: datetime
     updated_at: datetime
     ejecutivo: EjecutivoSummary | None = None
+
+
+class ClienteReassign(BaseModel):
+    nuevo_ejecutivo_id: uuid.UUID
+    motivo: str | None = None
+
